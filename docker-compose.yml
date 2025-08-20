@@ -1,0 +1,160 @@
+version: '3.8'
+
+services:
+  # Cosmos 区块链节点
+  cosmos-node:
+    image: cosmoshub:latest
+    container_name: cosmos-node
+    ports:
+      - "26657:26657"  # RPC 端口
+      - "1317:1317"    # API 端口
+      - "26656:26656"  # P2P 端口
+    volumes:
+      - cosmos_data:/root/.simapp
+      - ./chain-config:/chain-config
+    environment:
+      - CHAIN_ID=test-chain
+      - MONIKER=test-node
+    command: >
+      sh -c "
+        if [ ! -f /root/.simapp/config/genesis.json ]; then
+          simd init test-node --chain-id test-chain &&
+          simd keys add validator --keyring-backend test &&
+          simd add-genesis-account validator 1000000000stake --keyring-backend test &&
+          simd gentx validator 500000000stake --chain-id test-chain --keyring-backend test &&
+          simd collect-gentxs
+        fi &&
+        simd start --rpc.laddr tcp://0.0.0.0:26657
+      "
+    networks:
+      - cosmos-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:26657/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # 区块链应用
+  blockchain-app:
+    build: .
+    container_name: blockchain-app
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - RPC_ENDPOINT=http://cosmos-node:26657
+      - CHAIN_ID=test-chain
+      - ADDRESS_PREFIX=cosmos
+      - NODE_ENV=production
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      cosmos-node:
+        condition: service_healthy
+    networks:
+      - cosmos-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/blockchain/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # 可选：数据库服务（用于替换 JSON 文件存储）
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres-db
+    environment:
+      - POSTGRES_DB=blockchain_app
+      - POSTGRES_USER=blockchain
+      - POSTGRES_PASSWORD=password123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - cosmos-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blockchain"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 可选：Redis 服务（用于缓存）
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - cosmos-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 可选：监控服务
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - cosmos-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+    networks:
+      - cosmos-network
+    restart: unless-stopped
+
+volumes:
+  cosmos_data:
+    driver: local
+  app_data:
+    driver: local
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  cosmos-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
