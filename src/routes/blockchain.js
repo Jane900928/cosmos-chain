@@ -13,30 +13,36 @@ router.get('/status', async (req, res) => {
         const status = await cosmosClient.getStatus();
         const latestBlock = await cosmosClient.getBlock();
 
+        // 安全地访问区块数据
+        const transactionCount = latestBlock?.block?.data?.txs?.length || 0;
+        const blockTime = latestBlock?.block?.header?.time || new Date().toISOString();
+        const blockHeight = latestBlock?.block?.header?.height || '0';
+        const blockHash = latestBlock?.blockId?.hash || '';
+
         res.json({
             success: true,
             status: {
                 nodeInfo: {
-                    network: status.nodeInfo.network,
-                    version: status.nodeInfo.version,
-                    moniker: status.nodeInfo.moniker,
-                    id: status.nodeInfo.id
+                    network: status.nodeInfo.network || 'unknown',
+                    version: status.nodeInfo.version || 'unknown',
+                    moniker: status.nodeInfo.moniker || 'unknown',
+                    id: status.nodeInfo.id || 'unknown'
                 },
                 syncInfo: {
-                    latestBlockHash: status.syncInfo.latestBlockHash,
-                    latestBlockHeight: status.syncInfo.latestBlockHeight,
-                    latestBlockTime: status.syncInfo.latestBlockTime,
-                    catchingUp: status.syncInfo.catchingUp
+                    latestBlockHash: status.syncInfo.latestBlockHash || '',
+                    latestBlockHeight: status.syncInfo.latestBlockHeight || '0',
+                    latestBlockTime: status.syncInfo.latestBlockTime || new Date().toISOString(),
+                    catchingUp: status.syncInfo.catchingUp || false
                 },
                 validatorInfo: {
-                    address: status.validatorInfo.address,
-                    votingPower: status.validatorInfo.votingPower
+                    address: status.validatorInfo?.address || '',
+                    votingPower: status.validatorInfo?.votingPower || '0'
                 },
                 latestBlock: {
-                    height: latestBlock.block.header.height,
-                    time: latestBlock.block.header.time,
-                    hash: latestBlock.blockId.hash,
-                    transactionCount: latestBlock.block.data.txs.length
+                    height: blockHeight,
+                    time: blockTime,
+                    hash: blockHash,
+                    transactionCount: transactionCount
                 }
             }
         });
@@ -61,18 +67,23 @@ router.get('/blocks/latest', async (req, res) => {
 
         const block = await cosmosClient.getBlock();
 
+        // 安全地访问区块数据
+        const transactions = block?.block?.data?.txs || [];
+        const header = block?.block?.header || {};
+        const blockId = block?.blockId || {};
+
         res.json({
             success: true,
             block: {
-                height: block.block.header.height,
-                hash: block.blockId.hash,
-                time: block.block.header.time,
-                proposerAddress: block.block.header.proposerAddress,
-                transactionCount: block.block.data.txs.length,
-                transactions: block.block.data.txs,
-                previousBlockHash: block.block.header.lastBlockId.hash,
-                evidence: block.block.evidence,
-                lastCommit: block.block.lastCommit
+                height: header.height || '0',
+                hash: blockId.hash || '',
+                time: header.time || new Date().toISOString(),
+                proposerAddress: header.proposerAddress || '',
+                transactionCount: transactions.length,
+                transactions: transactions,
+                previousBlockHash: header.lastBlockId?.hash || '',
+                evidence: block?.block?.evidence || {},
+                lastCommit: block?.block?.lastCommit || {}
             }
         });
 
@@ -106,19 +117,24 @@ router.get('/blocks/:height', async (req, res) => {
             return res.status(404).json({ error: 'Block not found' });
         }
 
+        // 安全地访问区块数据
+        const transactions = block?.block?.data?.txs || [];
+        const header = block?.block?.header || {};
+        const blockId = block?.blockId || {};
+
         res.json({
             success: true,
             block: {
-                height: block.block.header.height,
-                hash: block.blockId.hash,
-                time: block.block.header.time,
-                proposerAddress: block.block.header.proposerAddress,
-                transactionCount: block.block.data.txs.length,
-                transactions: block.block.data.txs,
-                previousBlockHash: block.block.header.lastBlockId.hash,
-                evidence: block.block.evidence,
-                lastCommit: block.block.lastCommit,
-                validators: block.block.header.validatorsHash
+                height: header.height || blockHeight.toString(),
+                hash: blockId.hash || '',
+                time: header.time || new Date().toISOString(),
+                proposerAddress: header.proposerAddress || '',
+                transactionCount: transactions.length,
+                transactions: transactions,
+                previousBlockHash: header.lastBlockId?.hash || '',
+                evidence: block?.block?.evidence || {},
+                lastCommit: block?.block?.lastCommit || {},
+                validators: header.validatorsHash || ''
             }
         });
 
@@ -143,7 +159,7 @@ router.get('/blocks', async (req, res) => {
 
         // 获取最新区块高度
         const latestBlock = await cosmosClient.getBlock();
-        const latestHeight = parseInt(latestBlock.block.header.height);
+        const latestHeight = parseInt(latestBlock?.block?.header?.height || '1');
         
         const limitNum = Math.min(parseInt(limit), 50); // 最多返回50个区块
         const offsetNum = parseInt(offset);
@@ -155,15 +171,29 @@ router.get('/blocks', async (req, res) => {
         for (let height = startHeight; height >= endHeight && height > 0; height--) {
             try {
                 const block = await cosmosClient.getBlock(height);
-                blocks.push({
-                    height: block.block.header.height,
-                    hash: block.blockId.hash,
-                    time: block.block.header.time,
-                    proposerAddress: block.block.header.proposerAddress,
-                    transactionCount: block.block.data.txs.length
-                });
+                if (block) {
+                    const transactions = block?.block?.data?.txs || [];
+                    const header = block?.block?.header || {};
+                    const blockId = block?.blockId || {};
+                    
+                    blocks.push({
+                        height: header.height || height.toString(),
+                        hash: blockId.hash || '',
+                        time: header.time || new Date().toISOString(),
+                        proposerAddress: header.proposerAddress || '',
+                        transactionCount: transactions.length
+                    });
+                }
             } catch (error) {
                 console.error(`Failed to get block ${height}:`, error);
+                // 如果获取某个区块失败，添加一个占位符
+                blocks.push({
+                    height: height.toString(),
+                    hash: 'unavailable',
+                    time: new Date().toISOString(),
+                    proposerAddress: '',
+                    transactionCount: 0
+                });
             }
         }
 
@@ -200,14 +230,14 @@ router.get('/validators', async (req, res) => {
 
         res.json({
             success: true,
-            validators: validators.validators.map(validator => ({
-                address: validator.address,
-                publicKey: validator.pubKey,
-                votingPower: validator.votingPower,
-                proposerPriority: validator.proposerPriority
+            validators: (validators.validators || []).map(validator => ({
+                address: validator.address || '',
+                publicKey: validator.pubKey || '',
+                votingPower: validator.votingPower || '0',
+                proposerPriority: validator.proposerPriority || '0'
             })),
-            totalCount: validators.total,
-            blockHeight: validators.blockHeight
+            totalCount: validators.total || 0,
+            blockHeight: validators.blockHeight || '0'
         });
 
     } catch (error) {
@@ -233,23 +263,24 @@ router.get('/network', async (req, res) => {
         const latestBlock = await cosmosClient.getBlock();
 
         // 计算一些统计信息
-        const totalVotingPower = validators.validators.reduce(
-            (sum, validator) => sum + parseInt(validator.votingPower), 
+        const validatorsList = validators.validators || [];
+        const totalVotingPower = validatorsList.reduce(
+            (sum, validator) => sum + parseInt(validator.votingPower || '0'), 
             0
         );
 
         res.json({
             success: true,
             network: {
-                chainId: status.nodeInfo.network,
-                latestHeight: status.syncInfo.latestBlockHeight,
-                latestBlockTime: status.syncInfo.latestBlockTime,
-                validatorCount: validators.validators.length,
+                chainId: status.nodeInfo?.network || 'unknown',
+                latestHeight: status.syncInfo?.latestBlockHeight || '0',
+                latestBlockTime: status.syncInfo?.latestBlockTime || new Date().toISOString(),
+                validatorCount: validatorsList.length,
                 totalVotingPower: totalVotingPower,
                 averageBlockTime: '~6s', // 这可以通过分析多个区块来计算
-                nodeVersion: status.nodeInfo.version,
-                isCatchingUp: status.syncInfo.catchingUp,
-                moniker: status.nodeInfo.moniker
+                nodeVersion: status.nodeInfo?.version || 'unknown',
+                isCatchingUp: status.syncInfo?.catchingUp || false,
+                moniker: status.nodeInfo?.moniker || 'unknown'
             }
         });
 
@@ -282,15 +313,22 @@ router.get('/search/:query', async (req, res) => {
         if (!isNaN(height) && height > 0) {
             try {
                 const block = await cosmosClient.getBlock(height);
-                results.type = 'block';
-                results.data = {
-                    height: block.block.header.height,
-                    hash: block.blockId.hash,
-                    time: block.block.header.time,
-                    transactionCount: block.block.data.txs.length
-                };
+                if (block) {
+                    const transactions = block?.block?.data?.txs || [];
+                    const header = block?.block?.header || {};
+                    const blockId = block?.blockId || {};
+                    
+                    results.type = 'block';
+                    results.data = {
+                        height: header.height || height.toString(),
+                        hash: blockId.hash || '',
+                        time: header.time || new Date().toISOString(),
+                        transactionCount: transactions.length
+                    };
+                }
             } catch (error) {
                 // 继续尝试其他搜索类型
+                console.log('Block search failed:', error.message);
             }
         }
 
@@ -301,14 +339,15 @@ router.get('/search/:query', async (req, res) => {
                 if (transaction) {
                     results.type = 'transaction';
                     results.data = {
-                        hash: transaction.hash,
-                        height: transaction.height,
-                        gasUsed: transaction.gasUsed,
-                        gasWanted: transaction.gasWanted
+                        hash: transaction.hash || query,
+                        height: transaction.height || '0',
+                        gasUsed: transaction.gasUsed || '0',
+                        gasWanted: transaction.gasWanted || '0'
                     };
                 }
             } catch (error) {
                 // 继续尝试其他搜索类型
+                console.log('Transaction search failed:', error.message);
             }
         }
 
@@ -319,10 +358,11 @@ router.get('/search/:query', async (req, res) => {
                 results.type = 'address';
                 results.data = {
                     address: query,
-                    balances: balance
+                    balances: balance || []
                 };
             } catch (error) {
                 // 地址无效或没有余额
+                console.log('Address search failed:', error.message);
             }
         }
 
