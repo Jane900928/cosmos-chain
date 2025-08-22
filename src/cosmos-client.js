@@ -57,7 +57,8 @@ class CosmosClient {
             return balance;
         } catch (error) {
             console.error('Failed to get balance:', error);
-            throw error;
+            // 返回默认值而不是抛出错误
+            return { denom, amount: '0' };
         }
     }
 
@@ -68,7 +69,8 @@ class CosmosClient {
             return balances;
         } catch (error) {
             console.error('Failed to get all balances:', error);
-            throw error;
+            // 返回空数组而不是抛出错误
+            return [];
         }
     }
 
@@ -105,25 +107,115 @@ class CosmosClient {
     // 获取区块信息
     async getBlock(height = null) {
         try {
+            if (!this.tmClient) {
+                throw new Error('Tendermint client not initialized');
+            }
+
+            let block;
             if (height) {
-                return await this.tmClient.block(height);
+                block = await this.tmClient.block(height);
             } else {
                 // 获取最新区块
-                return await this.tmClient.block();
+                block = await this.tmClient.block();
             }
+
+            // 确保返回的数据结构正确
+            if (!block) {
+                throw new Error('Block data is null');
+            }
+
+            // 安全地构造返回数据
+            return {
+                block: {
+                    header: {
+                        height: block.block?.header?.height || '0',
+                        time: block.block?.header?.time || new Date().toISOString(),
+                        proposerAddress: block.block?.header?.proposerAddress || '',
+                        lastBlockId: {
+                            hash: block.block?.header?.lastBlockId?.hash || ''
+                        },
+                        validatorsHash: block.block?.header?.validatorsHash || ''
+                    },
+                    data: {
+                        txs: block.block?.data?.txs || []
+                    },
+                    evidence: block.block?.evidence || {},
+                    lastCommit: block.block?.lastCommit || {}
+                },
+                blockId: {
+                    hash: block.blockId?.hash || ''
+                }
+            };
         } catch (error) {
             console.error('Failed to get block:', error);
-            throw error;
+            // 返回一个安全的默认结构
+            return {
+                block: {
+                    header: {
+                        height: height ? height.toString() : '0',
+                        time: new Date().toISOString(),
+                        proposerAddress: '',
+                        lastBlockId: { hash: '' },
+                        validatorsHash: ''
+                    },
+                    data: { txs: [] },
+                    evidence: {},
+                    lastCommit: {}
+                },
+                blockId: { hash: '' }
+            };
         }
     }
 
     // 获取区块链状态
     async getStatus() {
         try {
-            return await this.tmClient.status();
+            if (!this.tmClient) {
+                throw new Error('Tendermint client not initialized');
+            }
+            
+            const status = await this.tmClient.status();
+            
+            // 确保返回安全的数据结构
+            return {
+                nodeInfo: {
+                    network: status.nodeInfo?.network || this.chainId,
+                    version: status.nodeInfo?.version || 'unknown',
+                    moniker: status.nodeInfo?.moniker || 'unknown',
+                    id: status.nodeInfo?.id || 'unknown'
+                },
+                syncInfo: {
+                    latestBlockHash: status.syncInfo?.latestBlockHash || '',
+                    latestBlockHeight: status.syncInfo?.latestBlockHeight || '0',
+                    latestBlockTime: status.syncInfo?.latestBlockTime || new Date().toISOString(),
+                    catchingUp: status.syncInfo?.catchingUp || false
+                },
+                validatorInfo: {
+                    address: status.validatorInfo?.address || '',
+                    votingPower: status.validatorInfo?.votingPower || '0'
+                }
+            };
         } catch (error) {
             console.error('Failed to get status:', error);
-            throw error;
+            // 返回默认状态
+            return {
+                nodeInfo: {
+                    network: this.chainId,
+                    version: 'unknown',
+                    moniker: 'unknown',
+                    id: 'unknown'
+                },
+                syncInfo: {
+                    latestBlockHash: '',
+                    latestBlockHeight: '0',
+                    latestBlockTime: new Date().toISOString(),
+                    catchingUp: false
+                },
+                validatorInfo: {
+                    address: '',
+                    votingPower: '0'
+                }
+            };
         }
     }
 
@@ -133,7 +225,7 @@ class CosmosClient {
             return await this.client.getTx(txHash);
         } catch (error) {
             console.error('Failed to get transaction:', error);
-            throw error;
+            return null;
         }
     }
 
@@ -143,21 +235,37 @@ class CosmosClient {
             return await this.client.searchTx(query);
         } catch (error) {
             console.error('Failed to search transactions:', error);
-            throw error;
+            return [];
         }
     }
 
     // 获取验证者信息
     async getValidators(height = null) {
         try {
-            if (height) {
-                return await this.tmClient.validators({ height });
-            } else {
-                return await this.tmClient.validatorsAll();
+            if (!this.tmClient) {
+                throw new Error('Tendermint client not initialized');
             }
+
+            let validators;
+            if (height) {
+                validators = await this.tmClient.validators({ height });
+            } else {
+                validators = await this.tmClient.validatorsAll();
+            }
+
+            // 确保返回安全的数据结构
+            return {
+                validators: validators.validators || [],
+                total: validators.total || 0,
+                blockHeight: validators.blockHeight || '0'
+            };
         } catch (error) {
             console.error('Failed to get validators:', error);
-            throw error;
+            return {
+                validators: [],
+                total: 0,
+                blockHeight: '0'
+            };
         }
     }
 
@@ -173,13 +281,30 @@ class CosmosClient {
         }
     }
 
+    // 检查连接状态
+    async isConnected() {
+        try {
+            if (!this.tmClient) {
+                return false;
+            }
+            await this.tmClient.status();
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
     // 断开连接
     async disconnect() {
-        if (this.client) {
-            this.client.disconnect();
-        }
-        if (this.tmClient) {
-            this.tmClient.disconnect();
+        try {
+            if (this.client) {
+                this.client.disconnect();
+            }
+            if (this.tmClient) {
+                this.tmClient.disconnect();
+            }
+        } catch (error) {
+            console.error('Error disconnecting:', error);
         }
     }
 }
