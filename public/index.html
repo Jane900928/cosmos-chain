@@ -611,8 +611,391 @@
             }
         }
 
-        // 其他JavaScript函数继续...
-        // [由于文件太长，这里只显示部分代码，完整的JavaScript代码在原artifact中]
+        // 加载挖矿统计
+        async function loadMiningStats() {
+            try {
+                const data = await apiCall('/miner/stats/overview');
+                if (data.success) {
+                    const stats = data.stats;
+                    document.getElementById('miningStats').innerHTML = `
+                        <div class="stat">
+                            <span class="stat-label">总矿工:</span>
+                            <span class="stat-value">${stats.mining.totalMiners}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">活跃矿工:</span>
+                            <span class="stat-value">${stats.mining.activeMiners}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">总算力:</span>
+                            <span class="stat-value">${(stats.mining.totalHashRate / 1000000).toFixed(2)} MH/s</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">已挖区块:</span>
+                            <span class="stat-value">${stats.mining.totalBlocksMined}</span>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('miningStats').innerHTML = `
+                    <div class="error">加载挖矿统计失败: ${error.message}</div>
+                `;
+            }
+        }
+
+        // 加载代币信息
+        async function loadTokenInfo() {
+            try {
+                const data = await apiCall('/tokens/info');
+                if (data.success) {
+                    const info = data.tokenInfo;
+                    document.getElementById('tokenInfo').innerHTML = `
+                        <div class="stat">
+                            <span class="stat-label">代币符号:</span>
+                            <span class="stat-value">${info.denom}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">总供应量:</span>
+                            <span class="stat-value">${info.totalSupply.toLocaleString()}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">持有者:</span>
+                            <span class="stat-value">${info.holders}</span>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('tokenInfo').innerHTML = `
+                    <div class="error">加载代币信息失败: ${error.message}</div>
+                `;
+            }
+        }
+
+        // 加载区块列表
+        async function loadBlocks() {
+            try {
+                const data = await apiCall('/blockchain/blocks?limit=10');
+                if (data.success) {
+                    const blocks = data.blocks;
+                    let tableHTML = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>高度</th>
+                                    <th>哈希</th>
+                                    <th>时间</th>
+                                    <th>交易数</th>
+                                    <th>提议者</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+                    
+                    blocks.forEach(block => {
+                        const time = new Date(block.time).toLocaleString();
+                        const shortHash = block.hash.substring(0, 16) + '...';
+                        const shortProposer = block.proposerAddress ? 
+                            block.proposerAddress.substring(0, 16) + '...' : 'N/A';
+                        
+                        tableHTML += `
+                            <tr onclick="viewBlock(${block.height})" style="cursor: pointer;">
+                                <td>${block.height}</td>
+                                <td>${shortHash}</td>
+                                <td>${time}</td>
+                                <td>${block.transactionCount}</td>
+                                <td>${shortProposer}</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    tableHTML += '</tbody></table>';
+                    document.getElementById('blocksContainer').innerHTML = tableHTML;
+                }
+            } catch (error) {
+                document.getElementById('blocksContainer').innerHTML = `
+                    <div class="error">加载区块数据失败: ${error.message}</div>
+                `;
+            }
+        }
+
+        // 加载用户列表
+        async function loadUsers() {
+            try {
+                const data = await apiCall('/users');
+                if (data.success) {
+                    allUsers = data.users;
+                    updateUserSelects();
+                }
+            } catch (error) {
+                console.error('Failed to load users:', error);
+            }
+        }
+
+        // 加载矿工列表
+        async function loadMiners() {
+            try {
+                const data = await apiCall('/miner');
+                if (data.success) {
+                    allMiners = data.miners;
+                }
+            } catch (error) {
+                console.error('Failed to load miners:', error);
+            }
+        }
+
+        // 更新用户选择下拉框
+        function updateUserSelects() {
+            const selects = ['senderUserId', 'minterUserId', 'minerUserId'];
+            selects.forEach(selectId => {
+                const select = document.getElementById(selectId);
+                select.innerHTML = '<option value="">选择用户...</option>';
+                allUsers.forEach(user => {
+                    select.innerHTML += `<option value="${user.id}">${user.name} (${user.address.substring(0, 16)}...)</option>`;
+                });
+            });
+        }
+
+        // 创建用户
+        async function createUser() {
+            const name = document.getElementById('userName').value;
+            const mnemonic = document.getElementById('userMnemonic').value;
+            
+            try {
+                const data = await apiCall('/users/create', {
+                    method: 'POST',
+                    body: JSON.stringify({ name, mnemonic: mnemonic || undefined })
+                });
+                
+                if (data.success) {
+                    document.getElementById('createUserResult').innerHTML = `
+                        <div class="success">
+                            <strong>用户创建成功!</strong><br>
+                            地址: ${data.user.address}<br>
+                            <small>请安全保存您的助记词</small>
+                        </div>
+                    `;
+                    loadUsers(); // 重新加载用户列表
+                } else {
+                    throw new Error(data.error);
+                }
+            } catch (error) {
+                document.getElementById('createUserResult').innerHTML = `
+                    <div class="error">创建用户失败: ${error.message}</div>
+                `;
+            }
+        }
+
+        // 代币转账
+        async function transferTokens() {
+            const fromUserId = document.getElementById('senderUserId').value;
+            const toAddress = document.getElementById('recipientAddress').value;
+            const amount = document.getElementById('transferAmount').value;
+            const memo = document.getElementById('transferMemo').value;
+            
+            if (!fromUserId || !toAddress || !amount) {
+                document.getElementById('transferResult').innerHTML = `
+                    <div class="error">请填写所有必需字段</div>
+                `;
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/tokens/transfer', {
+                    method: 'POST',
+                    body: JSON.stringify({ fromUserId, toAddress, amount, memo })
+                });
+                
+                if (data.success) {
+                    document.getElementById('transferResult').innerHTML = `
+                        <div class="success">
+                            <strong>转账成功!</strong><br>
+                            交易哈希: ${data.transaction.hash}<br>
+                            区块高度: ${data.transaction.height}
+                        </div>
+                    `;
+                } else {
+                    throw new Error(data.error);
+                }
+            } catch (error) {
+                document.getElementById('transferResult').innerHTML = `
+                    <div class="error">转账失败: ${error.message}</div>
+                `;
+            }
+        }
+
+        // 铸造代币
+        async function mintTokens() {
+            const minterUserId = document.getElementById('minterUserId').value;
+            const recipientAddress = document.getElementById('mintRecipientAddress').value;
+            const amount = document.getElementById('mintAmount').value;
+            
+            if (!minterUserId || !recipientAddress || !amount) {
+                document.getElementById('mintResult').innerHTML = `
+                    <div class="error">请填写所有必需字段</div>
+                `;
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/tokens/mint', {
+                    method: 'POST',
+                    body: JSON.stringify({ minterUserId, recipientAddress, amount })
+                });
+                
+                if (data.success) {
+                    document.getElementById('mintResult').innerHTML = `
+                        <div class="success">
+                            <strong>代币铸造成功!</strong><br>
+                            交易哈希: ${data.transaction.hash}<br>
+                            铸造数量: ${data.transaction.amount}
+                        </div>
+                    `;
+                } else {
+                    throw new Error(data.error);
+                }
+            } catch (error) {
+                document.getElementById('mintResult').innerHTML = `
+                    <div class="error">铸造失败: ${error.message}</div>
+                `;
+            }
+        }
+
+        // 注册矿工
+        async function registerMiner() {
+            const userId = document.getElementById('minerUserId').value;
+            const minerName = document.getElementById('minerName').value;
+            const hashRate = document.getElementById('minerHashRate').value;
+            
+            if (!userId || !minerName) {
+                document.getElementById('minerResult').innerHTML = `
+                    <div class="error">请填写所有必需字段</div>
+                `;
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/miner/register', {
+                    method: 'POST',
+                    body: JSON.stringify({ userId, minerName, hashRate })
+                });
+                
+                if (data.success) {
+                    document.getElementById('minerResult').innerHTML = `
+                        <div class="success">
+                            <strong>矿工注册成功!</strong><br>
+                            矿工ID: ${data.miner.id}<br>
+                            算力: ${(data.miner.hashRate / 1000000).toFixed(2)} MH/s
+                        </div>
+                    `;
+                    loadMiners(); // 重新加载矿工列表
+                } else {
+                    throw new Error(data.error);
+                }
+            } catch (error) {
+                document.getElementById('minerResult').innerHTML = `
+                    <div class="error">注册失败: ${error.message}</div>
+                `;
+            }
+        }
+
+        // 快速搜索
+        async function quickSearch() {
+            const query = document.getElementById('quickSearch').value.trim();
+            if (!query) return;
+            
+            try {
+                const data = await apiCall(`/blockchain/search/${encodeURIComponent(query)}`);
+                if (data.success) {
+                    const result = data.result;
+                    let resultHTML = `<div class="success"><strong>搜索结果:</strong><br>`;
+                    
+                    if (result.type === 'block') {
+                        resultHTML += `
+                            类型: 区块<br>
+                            高度: ${result.data.height}<br>
+                            哈希: ${result.data.hash}<br>
+                            交易数: ${result.data.transactionCount}
+                        `;
+                    } else if (result.type === 'transaction') {
+                        resultHTML += `
+                            类型: 交易<br>
+                            哈希: ${result.data.hash}<br>
+                            区块高度: ${result.data.height}<br>
+                            Gas使用: ${result.data.gasUsed}
+                        `;
+                    } else if (result.type === 'address') {
+                        resultHTML += `
+                            类型: 地址<br>
+                            地址: ${result.data.address}<br>
+                            余额: ${result.data.balances.map(b => `${b.amount} ${b.denom}`).join(', ')}
+                        `;
+                    }
+                    
+                    resultHTML += '</div>';
+                    document.getElementById('searchResult').innerHTML = resultHTML;
+                } else {
+                    throw new Error(data.error);
+                }
+            } catch (error) {
+                document.getElementById('searchResult').innerHTML = `
+                    <div class="error">搜索失败: ${error.message}</div>
+                `;
+            }
+        }
+
+        // 高级搜索
+        async function performSearch() {
+            const content = document.getElementById('searchContent').value.trim();
+            if (!content) return;
+            
+            await quickSearch();
+            closeModal('searchModal');
+        }
+
+        // 查看区块详情
+        async function viewBlock(height) {
+            try {
+                const data = await apiCall(`/blockchain/blocks/${height}`);
+                if (data.success) {
+                    const block = data.block;
+                    alert(`区块详情:\n高度: ${block.height}\n哈希: ${block.hash}\n时间: ${new Date(block.time).toLocaleString()}\n交易数: ${block.transactionCount}`);
+                }
+            } catch (error) {
+                alert('获取区块详情失败: ' + error.message);
+            }
+        }
+
+        // 模态框控制
+        function showModal(modalId) {
+            document.getElementById(modalId).style.display = 'block';
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modals = document.querySelectorAll('.modal');
+            modals.forEach(modal => {
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+        }
+
+        // 回车键搜索
+        document.getElementById('quickSearch').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                quickSearch();
+            }
+        });
+
+        document.getElementById('searchContent').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
     </script>
 </body>
 </html>
