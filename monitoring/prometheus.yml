@@ -1,0 +1,37 @@
+# Prometheus 配置文件
+# 用于监控 Cosmos 区块链应用
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Prometheus 自身监控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # 区块链应用监控
+  - job_name: 'blockchain-app'
+    static_configs:
+      - targets: ['blockchain-app:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Cosmos 节点监控
+  - job_name: 'cosmos-node'
+    static_configs:
+      - targets: ['cosmos-node:26657']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Node.js 应用监控（如果有 prom-client）
+  - job_name: 'node-app'
+    static_configs:
+      - targets: ['blockchain-app:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
